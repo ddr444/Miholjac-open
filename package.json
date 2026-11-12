@@ -1,0 +1,14 @@
+{
+  "name": "miholjac-open",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:local": "wrangler d1 migrations apply miholjac-open --local",
+    "db:remote": "wrangler d1 migrations apply miholjac-open --remote",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "devDependencies": { "wrangler": "4.160.0" }
+}
