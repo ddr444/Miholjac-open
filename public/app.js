@@ -1,4 +1,9 @@
 const $ = selector => document.querySelector(selector);
+const currentPage = () => {
+  const page=location.hash.slice(1).split('?')[0];
+  return ['pocetna','termini','rang-lista','rezultati','administracija'].includes(page)?page:'pocetna';
+};
+document.body.dataset.page=currentPage();
 const lanes = ['I.','II.','III.','IV.'];
 const state = { config:null, slots:[], choice:null, category:'upper_m', rankings:[], results:[], bookings:[], resultId:null, authenticated:false, authMode:'password',role:null,email:null,googleReady:false };
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -107,10 +112,11 @@ async function loadAdminDay() {
   $('#admin-bookings').innerHTML=bookings.length?bookings.map(b=>`<div class="admin-booking"><div class="person"><strong>${hour(b.hour)} · ${lanes[b.lane-1]} · ${escape(b.name)}</strong><small>${escape(b.club||'Bez kluba')} · ${escape(state.config.categories[b.category])}<br>Telefon: ${escape(b.contact)}<br>${b.total===null?'Rezultat nije unesen':`Ukupno: ${b.total} · Čišćenje: ${b.cleaning??'—'} · Promašaji: ${b.misses??'—'} · ${b.ordinal}. nastup`}${b.free?' · BESPLATAN NASTUP':''}</small></div><div class="actions"><button class="secondary" data-category-person="${b.participant_id}">${b.division_review?'⚠ Provjeri kategoriju':'Kategorija'}</button><button class="secondary" data-result="${b.id}">${b.total===null?'Unesi':'Uredi'} rezultat</button><button class="secondary" data-payment="${b.id}" data-paid="${!!b.paid}">${b.paid?'✓ Plaćeno':'Označi uplatu'}</button>${b.total===null?`<button class="secondary" data-cancel="${b.id}">Otkaži</button>`:''}</div></div>`).join(''):'<div class="empty">Za ovaj dan nema prijava.</div>';
 }
 async function route() {
-  const hashPage=location.hash.slice(1).split('?')[0];
-  const page=['pocetna','termini','rang-lista','rezultati','administracija'].includes(hashPage)?hashPage:'pocetna';
+  const page=currentPage();
+  document.body.dataset.page=page;
   document.querySelectorAll('.page').forEach(p=>p.hidden=p.id!==`page-${page}`);
-  document.querySelectorAll('[data-page]').forEach(a=>a.classList.toggle('active',a.dataset.page===page));
+  document.querySelectorAll('nav [data-page]').forEach(a=>a.classList.toggle('active',a.dataset.page===page));
+  if(window.matchMedia('(max-width: 650px)').matches)window.scrollTo({top:0,left:0,behavior:'instant'});
   try {
     if(page==='termini')await loadSlots();
     if(page==='rang-lista')await loadRank();
