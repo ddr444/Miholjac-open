@@ -196,6 +196,31 @@ async function api(request, env, url) {
     await audit(env,'schedule','range',{...b,added:changes}).run();
     return json({ok:true,added:changes});
   }
+  if (path === '/api/admin/booking' && method === 'POST') {
+    const b=await body(request),id=num(b.id,1,2147483647),slotId=num(b.slotId,1,2147483647),lane=num(b.lane,1,4);
+    const name=str(b.name,100),club=str(b.club,100,false),contact=str(b.contact,40),category=str(b.category,30);
+    const digits=contact.replace(/\D/g,'');
+    if(!/^\+?[0-9][0-9 ()/.\-]*$/.test(contact)||digits.length<7||digits.length>15)fail(400,'Unesite valjan broj telefona (7–15 znamenki).');
+    if(!Object.hasOwn(CATEGORIES,category)||typeof b.paid!=='boolean')fail(400,'Provjerite kategoriju i uplatu.');
+    const original=await env.DB.prepare('SELECT b.*,p.name,p.club,p.contact,p.division FROM bookings b JOIN participants p ON p.id=b.participant_id WHERE b.id=? AND b.cancelled=0').bind(id).first();
+    if(!original)fail(404,'Aktivna prijava nije pronađena.');
+    const slot=await env.DB.prepare('SELECT * FROM slots WHERE id=?').bind(slotId).first();
+    if(!slot||(slot.closed&&slotId!==original.slot_id))fail(409,'Odabrani termin je zatvoren ili ne postoji.');
+    const key=await hash([name.toLocaleLowerCase('hr').replace(/\s+/g,' '),contact.toLowerCase().replace(/\s+/g,''),category].join('|'));
+    if(await env.DB.prepare('SELECT id FROM participants WHERE identity_key=? AND id<>?').bind(key,original.participant_id).first())fail(409,'Drugi zapis natjecatelja već ima te podatke. Promjena nije spremljena; zapise treba objediniti.');
+    try {
+      const saved=await env.DB.batch([
+        env.DB.prepare(`UPDATE bookings SET slot_id=COALESCE((SELECT id FROM slots WHERE id=? AND (closed=0 OR id=?)),-1),lane=?,paid=? WHERE id=? AND cancelled=0`).bind(slotId,original.slot_id,lane,Number(b.paid),id),
+        env.DB.prepare(`UPDATE participants SET name=?,club=?,contact=?,division=?,division_review=0,identity_key=? WHERE id=? AND EXISTS(SELECT 1 FROM bookings WHERE id=? AND cancelled=0)`).bind(name,club,contact,category,key,original.participant_id,id),
+        audit(env,'booking-edit',id,{before:{name:original.name,club:original.club,contact:original.contact,category:original.division,slotId:original.slot_id,lane:original.lane,paid:!!original.paid},after:{name,club,contact,category,slotId,lane,paid:b.paid}})
+      ]);
+      if(!saved[0].meta.changes)fail(409,'Prijava je u međuvremenu otkazana. Osvježite pregled.');
+    }catch(e){
+      if(/UNIQUE|constraint/i.test(e.message))fail(409,'Staza je zauzeta, natjecatelj već ima prijavu u tom terminu ili je termin zatvoren. Ništa nije promijenjeno.');
+      throw e;
+    }
+    return json({ok:true,day:slot.day});
+  }
   if (path === '/api/admin/slot' && method === 'POST') {
     const b = await body(request), id = num(b.id,1,2147483647);
     if (typeof b.closed !== 'boolean') fail(400,'Neispravan status.');
