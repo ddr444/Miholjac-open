@@ -109,7 +109,31 @@ async function loadAdminDay() {
   if(request!==adminRequest)return;
   state.bookings=bookings;
   $('#admin-slots').innerHTML=slots.length?slots.map(s=>`<button class="secondary ${s.closed?'closed':''}" data-admin-slot="${s.id}" data-closed="${s.closed}">${hour(s.hour)} · ${s.closed?'Otvori':'Zatvori'}</button>`).join(''):'<p class="fine">Nema termina. Otvori ih u obrascu iznad.</p>';
-  $('#admin-bookings').innerHTML=bookings.length?bookings.map(b=>`<div class="admin-booking"><div class="person"><strong>${hour(b.hour)} · ${lanes[b.lane-1]} · ${escape(b.name)}</strong><small>${escape(b.club||'Bez kluba')} · ${escape(state.config.categories[b.category])}<br>Telefon: ${escape(b.contact)}<br>${b.total===null?'Rezultat nije unesen':`Ukupno: ${b.total} · Čišćenje: ${b.cleaning??'—'} · Promašaji: ${b.misses??'—'} · ${b.ordinal}. nastup`}${b.free?' · BESPLATAN NASTUP':''}</small></div><div class="actions"><button class="secondary" data-category-person="${b.participant_id}">${b.division_review?'⚠ Provjeri kategoriju':'Kategorija'}</button><button class="secondary" data-result="${b.id}">${b.total===null?'Unesi':'Uredi'} rezultat</button><button class="secondary" data-payment="${b.id}" data-paid="${!!b.paid}">${b.paid?'✓ Plaćeno':'Označi uplatu'}</button>${b.total===null?`<button class="secondary" data-cancel="${b.id}">Otkaži</button>`:''}</div></div>`).join(''):'<div class="empty">Za ovaj dan nema prijava.</div>';
+  $('#admin-bookings').innerHTML=bookings.length?bookings.map(b=>`<div class="admin-booking"><div class="person"><strong>${hour(b.hour)} · ${lanes[b.lane-1]} · ${escape(b.name)}</strong><small>${escape(b.club||'Bez kluba')} · ${escape(state.config.categories[b.category])}<br>Telefon: ${escape(b.contact)}<br>${b.total===null?'Rezultat nije unesen':`Ukupno: ${b.total} · Čišćenje: ${b.cleaning??'—'} · Promašaji: ${b.misses??'—'} · ${b.ordinal}. nastup`}${b.free?' · BESPLATAN NASTUP':''}</small></div><div class="actions"><button class="secondary" data-edit-booking="${b.id}">Uredi prijavu</button><button class="secondary" data-category-person="${b.participant_id}">${b.division_review?'⚠ Provjeri kategoriju':'Kategorija'}</button><button class="secondary" data-result="${b.id}">${b.total===null?'Unesi':'Uredi'} rezultat</button><button class="secondary" data-payment="${b.id}" data-paid="${!!b.paid}">${b.paid?'✓ Plaćeno':'Označi uplatu'}</button>${b.total===null?`<button class="secondary" data-cancel="${b.id}">Otkaži</button>`:''}</div></div>`).join(''):'<div class="empty">Za ovaj dan nema prijava.</div>';
+}
+let editSlotRequest=0;
+async function loadEditBookingSlots(preferredSlot,preferredLane) {
+  const request=++editSlotRequest,day=$('#edit-booking-date').value;
+  const select=$('#edit-booking-slot');select.innerHTML='<option value="">Učitavanje…</option>';select.disabled=true;
+  $('#edit-booking-lane').disabled=true;
+  try{
+    const slots=await api(`slots?date=${encodeURIComponent(day)}`);
+    if(request!==editSlotRequest)return;
+    const original=state.editBooking;
+    state.editSlots=slots.filter(slot=>!slot.closed||slot.id===original.slot_id);
+    select.innerHTML=state.editSlots.map(slot=>`<option value="${slot.id}">${hour(slot.hour)}${slot.closed?' · zatvoren':''}</option>`).join('')||'<option value="">Nema otvorenih termina</option>';
+    select.disabled=!state.editSlots.length;
+    if(state.editSlots.some(slot=>slot.id===preferredSlot))select.value=String(preferredSlot);
+    updateEditBookingLanes(preferredLane);
+  }catch(e){if(request===editSlotRequest){select.innerHTML='<option value="">Termini nisu učitani</option>';$('#edit-booking-error').textContent=e.message;}}
+}
+function updateEditBookingLanes(preferredLane) {
+  const slot=state.editSlots?.find(slot=>slot.id===Number($('#edit-booking-slot').value)),original=state.editBooking;
+  const select=$('#edit-booking-lane');select.disabled=!slot;
+  if(!slot)return;
+  const available=[];
+  for(const option of select.options){const lane=Number(option.value);option.disabled=slot.taken.includes(lane)&&!(slot.id===original.slot_id&&lane===original.lane);option.textContent=`${lanes[lane-1]}${option.disabled?' · zauzeta':''}`;if(!option.disabled)available.push(lane);}
+  select.value=String(available.includes(preferredLane)?preferredLane:(available[0]??''));
 }
 async function route() {
   const page=currentPage();
@@ -178,12 +202,27 @@ async function init() {
   $('#admin-bookings').addEventListener('click',async event=>{
     const button=event.target.closest('button');if(!button)return;
     try {
+      if(button.dataset.editBooking){
+        const b=state.bookings.find(b=>b.id===Number(button.dataset.editBooking));state.editBooking=b;
+        const form=$('#edit-booking-form');form.reset();for(const field of ['name','club','contact'])form.elements[field].value=b[field];
+        $('#edit-booking-category').innerHTML=Object.entries(state.config.categories).map(([key,label])=>`<option value="${key}">${escape(label)}</option>`).join('');
+        form.elements.category.value=b.category;form.elements.paid.checked=!!b.paid;$('#edit-booking-date').value=b.day;$('#edit-booking-error').textContent='';
+        $('#edit-booking-dialog').showModal();await loadEditBookingSlots(b.slot_id,b.lane);
+      }
       if(button.dataset.categoryPerson){const b=state.bookings.find(b=>b.participant_id===Number(button.dataset.categoryPerson));state.categoryPersonId=b.participant_id;$('#category-person-name').textContent=b.name;$('#admin-category').innerHTML=Object.entries(state.config.categories).map(([key,label])=>`<option value="${key}">${escape(label)}</option>`).join('');$('#admin-category').value=b.category;$('#category-error').textContent='';$('#category-dialog').showModal();}
       if(button.dataset.result){const b=state.bookings.find(b=>b.id===Number(button.dataset.result));state.resultId=b.id;$('#result-category').innerHTML=Object.entries(state.config.categories).map(([key,label])=>`<option value="${key}">${escape(label)}</option>`).join('');$('#result-category').value=b.category;$('#result-person').textContent=`${b.name} · ${hour(b.hour)} · staza ${lanes[b.lane-1]}`;for(const field of ['total','cleaning','misses'])$('#result-form').elements[field].value=b[field]??'';$('#result-error').textContent='';$('#result-dialog').showModal();}
       if(button.dataset.payment){button.disabled=true;await api('admin/payment',{id:Number(button.dataset.payment),paid:button.dataset.paid!=='true'});await loadAdminDay();}
       if(button.dataset.cancel && confirm('Otkazati ovu rezervaciju? Staza će se osloboditi.')){button.disabled=true;await api('admin/cancel',{id:Number(button.dataset.cancel)});await loadAdminDay();}
     }catch(e){button.disabled=false;toast(e.message,true);}
   });
+  $('#edit-booking-date').addEventListener('change',()=>loadEditBookingSlots());
+  $('#edit-booking-slot').addEventListener('change',()=>updateEditBookingLanes());
+  $('#edit-booking-form').addEventListener('submit',event=>{event.preventDefault();busy(event.target,async()=>{
+    if($('#edit-booking-slot').disabled||$('#edit-booking-lane').disabled)throw new Error('Odaberite raspoloživ termin i stazu.');
+    const form=Object.fromEntries(new FormData(event.target));
+    const saved=await api('admin/booking',{id:state.editBooking.id,name:form.name,club:form.club,contact:form.contact,category:form.category,slotId:Number(form.slotId),lane:Number(form.lane),paid:event.target.elements.paid.checked});
+    $('#edit-booking-dialog').close();$('#admin-date').value=saved.day;await loadAdminDay();toast('Prijava je ažurirana.');
+  },'#edit-booking-error');});
   $('#category-form').addEventListener('submit',event=>{event.preventDefault();busy(event.target,async()=>{await api('admin/category',{id:state.categoryPersonId,category:$('#admin-category').value});$('#category-dialog').close();toast('Kategorija je ažurirana za sve nastupe natjecatelja.');await loadAdminDay();},'#category-error');});
   $('#result-form').addEventListener('submit',event=>{event.preventDefault();busy(event.target,async()=>{const values=Object.fromEntries(['total','cleaning','misses'].map(field=>[field,Number(event.target.elements[field].value)]));await api('admin/result',{id:state.resultId,...values,category:$('#result-category').value});$('#result-dialog').close();toast('Rezultat je spremljen. Rang-lista je ažurirana.');await loadAdminDay();},'#result-error');});
   onClick('#export-data',async()=>{const data=await api('admin/export');const link=document.createElement('a');const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));link.href=url;link.download=`backup-miholjac-${new Date().toISOString().slice(0,10)}.json`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Preuzeta kopija sadrži privatne kontakte. Spremite je na sigurno.');});
