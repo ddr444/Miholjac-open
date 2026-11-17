@@ -105,11 +105,25 @@ async function loadAdmin() {
 let adminRequest=0;
 async function loadAdminDay() {
   const day=$('#admin-date').value, request=++adminRequest;
-  const [slots,bookings]=await Promise.all([api(`slots?date=${encodeURIComponent(day)}`),api(`admin/bookings?date=${encodeURIComponent(day)}`)]);
+  const [slots,bookings]=await Promise.all([api(`slots?date=${encodeURIComponent(day)}`),api(`admin/bookings?date=${encodeURIComponent(day)}`),loadStatistics()]);
   if(request!==adminRequest)return;
   state.bookings=bookings;
   $('#admin-slots').innerHTML=slots.length?slots.map(s=>`<button class="secondary ${s.closed?'closed':''}" data-admin-slot="${s.id}" data-closed="${s.closed}">${hour(s.hour)} · ${s.closed?'Otvori':'Zatvori'}</button>`).join(''):'<p class="fine">Nema termina. Otvori ih u obrascu iznad.</p>';
   $('#admin-bookings').innerHTML=bookings.length?bookings.map(b=>`<div class="admin-booking"><div class="person"><strong>${hour(b.hour)} · ${lanes[b.lane-1]} · ${escape(b.name)}</strong><small>${escape(b.club||'Bez kluba')} · ${escape(state.config.categories[b.category])}<br>Telefon: ${escape(b.contact)}<br>${b.total===null?'Rezultat nije unesen':`Ukupno: ${b.total} · Čišćenje: ${b.cleaning??'—'} · Promašaji: ${b.misses??'—'} · ${b.ordinal}. nastup`}${b.free?' · BESPLATAN NASTUP':''}</small></div><div class="actions"><button class="secondary" data-edit-booking="${b.id}">Uredi prijavu</button><button class="secondary" data-category-person="${b.participant_id}">${b.division_review?'⚠ Provjeri kategoriju':'Kategorija'}</button><button class="secondary" data-result="${b.id}">${b.total===null?'Unesi':'Uredi'} rezultat</button><button class="secondary" data-payment="${b.id}" data-paid="${!!b.paid}">${b.paid?'✓ Plaćeno':'Označi uplatu'}</button>${b.total===null?`<button class="secondary" data-cancel="${b.id}">Otkaži</button>`:''}</div></div>`).join(''):'<div class="empty">Za ovaj dan nema prijava.</div>';
+}
+let statisticsRequest=0;
+async function loadStatistics() {
+  const request=++statisticsRequest;
+  try{
+    const data=await api('admin/statistics');
+    if(request!==statisticsRequest||!state.authenticated)return;
+    const t=data.totals,percent=n=>new Intl.NumberFormat('hr-HR',{maximumFractionDigits:1}).format(n)+' %';
+    const cards=[['Popunjenost otvorenih termina',percent(t.occupancy),`${t.bookedOpen} od ${t.capacity} mjesta`],['Rezervirani nastupi',t.booked,`${t.awaitingResults} bez unesenog rezultata`],['Nastupi s rezultatom',t.completed,'Uključuju i besplatne nastupe'],['Besplatni nastupi',t.freeCompleted,'5., 10., 15. … završeni nastup'],['Nastupi za naplatu',t.chargeableCompleted,'S rezultatom, bez besplatnih']];
+    $('#statistics-summary').innerHTML=`<div class="statistics-cards">${cards.map(([label,value,note])=>`<div><span>${escape(label)}</span><strong>${escape(value)}</strong><small>${escape(note)}</small></div>`).join('')}</div>${t.bookedClosed?`<p class="fine">U zatvorenim terminima postoje ${t.bookedClosed} aktivne prijave. Uključene su u broj nastupa, ali nisu u postotku popunjenosti otvorenih termina.</p>`:''}`;
+    $('#statistics-daily').innerHTML=data.daily.length?`<table><thead><tr><th>Datum</th><th>Otvoreni termini</th><th>Mjesta</th><th>Rezervirano / otvoreno</th><th>Popunjenost</th><th>Sve prijave</th><th>S rezultatom</th><th>Besplatni</th><th>Za naplatu</th></tr></thead><tbody>${data.daily.map(d=>`<tr><td>${escape(dateLabel(d.day))}</td><td>${d.openSlots}</td><td>${d.capacity}</td><td>${d.bookedOpen}</td><td>${percent(d.occupancy)}</td><td>${d.booked}</td><td>${d.completed}</td><td>${d.freeCompleted}</td><td>${d.chargeableCompleted}</td></tr>`).join('')}</tbody></table>`:'<p class="fine">Još nema otvorenih termina.</p>';
+    $('#statistics-free-title').textContent=`Besplatni nastupi — svaki peti (${t.freeCompleted})`;
+    $('#statistics-free').innerHTML=data.freePerformances.length?`<table><thead><tr><th>Natjecatelj / klub</th><th>Termin</th><th>Staza</th><th>Redni nastup</th><th>Rezultat</th></tr></thead><tbody>${data.freePerformances.map(p=>`<tr><td><strong>${escape(p.name)}</strong><small>${escape(p.club||'Bez kluba')}</small></td><td>${escape(dateLabel(p.day))} · ${hour(p.hour)}</td><td>${lanes[p.lane-1]}</td><td>${p.ordinal}.</td><td>${p.total}</td></tr>`).join('')}</tbody></table>`:'<p class="fine">Još nema petih završenih nastupa s unesenim rezultatom.</p>';
+  }catch(e){if(request===statisticsRequest)$('#statistics-summary').innerHTML=`<p class="error">Statistika nije učitana: ${escape(e.message)}</p>`;}
 }
 let editSlotRequest=0;
 async function loadEditBookingSlots(preferredSlot,preferredLane) {
@@ -163,6 +177,7 @@ async function init() {
   document.querySelectorAll('[data-close]').forEach(button=>button.addEventListener('click',()=>button.closest('dialog').close()));
   $('#booking-date').addEventListener('change',loadSlots); $('#admin-date').addEventListener('change',()=>loadAdminDay().catch(e=>toast(e.message,true)));
   for(const [id,delta] of [['#previous-day',-1],['#next-day',1]]) onClick(id,()=>{const d=new Date(`${$('#booking-date').value}T12:00:00Z`);d.setUTCDate(d.getUTCDate()+delta);$('#booking-date').value=d.toISOString().slice(0,10);return loadSlots();});
+  onClick('#refresh-statistics',loadStatistics);
   onClick('#refresh-slots',loadSlots);onClick('#refresh-rank',loadRank);onClick('#refresh-results',loadResults);onClick('#refresh-admin',loadAdminDay);
   $('#slots').addEventListener('click',event=>{const button=event.target.closest('[data-slot]');if(button)openBooking(state.slots.find(s=>s.id===Number(button.dataset.slot)),Number(button.dataset.lane));});
   $('#booking-form').addEventListener('submit',event=>{event.preventDefault();busy(event.target,async()=>{
