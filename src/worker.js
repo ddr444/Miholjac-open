@@ -1,5 +1,6 @@
 import { CATEGORIES, START, END, validDay, zagrebNow, upcoming, scheduleDays, rankResults } from './domain.js';
 import { googleMode, googleReady, googleSession, googleRoute, googleLogout, normalizeEmail } from './google-auth.js';
+import { buildStatistics, completedOrdinals } from './statistics.js';
 
 class HttpError extends Error { constructor(status, message) { super(message); this.status = status; } }
 const fail = (status, message) => { throw new HttpError(status, message); };
@@ -178,11 +179,15 @@ async function api(request, env, url) {
       r.total,r.cleaning,r.misses FROM bookings b JOIN participants p ON p.id=b.participant_id JOIN slots s ON s.id=b.slot_id
       LEFT JOIN results r ON r.booking_id=b.id WHERE s.day=? AND b.cancelled=0 ORDER BY s.hour,b.lane`).bind(day).all()).results;
     const completed = await allResults(env);
-    const ordinals = new Map();
-    completed.sort((a,b)=> `${a.day}${String(a.hour).padStart(2,'0')}`.localeCompare(`${b.day}${String(b.hour).padStart(2,'0')}`) || a.booking_id-b.booking_id);
-    const counts = new Map();
-    for (const r of completed) { const n=(counts.get(r.participant_id)||0)+1; counts.set(r.participant_id,n); ordinals.set(r.booking_id,n); }
+    const ordinals = completedOrdinals(completed);
     return json(rows.map(r=>({...r,ordinal:ordinals.get(r.id)||null,free:!!ordinals.get(r.id)&&ordinals.get(r.id)%5===0})));
+  }
+  if (path === '/api/admin/statistics' && method === 'GET') {
+    const rows=(await env.DB.prepare(`SELECT s.id AS slot_id,s.day,s.hour,s.closed,b.id AS booking_id,b.participant_id,b.lane,p.name,p.club,r.total
+      FROM slots s LEFT JOIN bookings b ON b.slot_id=s.id AND b.cancelled=0
+      LEFT JOIN participants p ON p.id=b.participant_id LEFT JOIN results r ON r.booking_id=b.id
+      ORDER BY s.day,s.hour,b.id`).all()).results;
+    return json(buildStatistics(rows));
   }
   if (path === '/api/admin/schedule' && method === 'POST') {
     const b = await body(request);
