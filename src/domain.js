@@ -6,6 +6,7 @@ export const CATEGORIES = {
 };
 export const START = '2026-11-25';
 export const END = '2026-12-29';
+export const participantKey = (name,category) => `${String(name).normalize('NFKC').trim().toLocaleLowerCase('hr').replace(/\s+/g,' ')}|${category}`;
 export function validDay(day) {
   return typeof day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(day) &&
     !Number.isNaN(Date.parse(day)) && new Date(day).toISOString().slice(0,10) === day && day >= START && day <= END;
@@ -31,10 +32,11 @@ export function scheduleDays(from, to, weekdays) {
 export function rankResults(rows) {
   const people = new Map();
   for (const row of rows) {
-    if (!people.has(row.participant_id)) people.set(row.participant_id, { id: row.participant_id, name: row.name, club: row.club, category: row.category, scores: [], performances: [] });
+    const key=participantKey(row.name,row.category);
+    if (!people.has(key)) people.set(key, { id: row.participant_id, name: row.name, club: row.club, category: row.category, scores: [], performances: [] });
     const total=row.total ?? (row.s1 + row.s2 + row.s3 + row.s4);
-    people.get(row.participant_id).scores.push(total);
-    people.get(row.participant_id).performances.push({booking_id:row.booking_id,day:row.day,hour:row.hour,lane:row.lane,total,cleaning:row.cleaning??null,misses:row.misses??null});
+    people.get(key).scores.push(total);
+    people.get(key).performances.push({booking_id:row.booking_id,day:row.day,hour:row.hour,lane:row.lane,total,cleaning:row.cleaning??null,misses:row.misses??null});
   }
   const result = [];
   for (const category of Object.keys(CATEGORIES)) {

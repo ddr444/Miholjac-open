@@ -1,8 +1,10 @@
+import { participantKey } from './domain.js';
 export function completedOrdinals(rows) {
   const counts=new Map(),ordinals=new Map();
   for(const row of [...rows].sort((a,b)=>a.day.localeCompare(b.day)||a.hour-b.hour||a.booking_id-b.booking_id)){
-    const n=(counts.get(row.participant_id)||0)+1;
-    counts.set(row.participant_id,n);ordinals.set(row.booking_id,n);
+    const key=participantKey(row.name,row.category);
+    const n=(counts.get(key)||0)+1;
+    counts.set(key,n);ordinals.set(row.booking_id,n);
   }
   return ordinals;
 }

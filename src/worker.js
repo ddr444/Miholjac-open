@@ -1,4 +1,4 @@
-import { CATEGORIES, START, END, validDay, zagrebNow, upcoming, scheduleDays, rankResults } from './domain.js';
+import { CATEGORIES, START, END, validDay, zagrebNow, upcoming, scheduleDays, rankResults, participantKey } from './domain.js';
 import { googleMode, googleReady, googleSession, googleRoute, googleLogout, normalizeEmail } from './google-auth.js';
 import { buildStatistics, completedOrdinals } from './statistics.js';
 
@@ -53,7 +53,7 @@ async function categoryChange(env,id,category) {
   if(!Object.hasOwn(CATEGORIES,category))fail(400,'Odaberite kategoriju.');
   const p=await env.DB.prepare('SELECT * FROM participants WHERE id=?').bind(id).first();
   if(!p)fail(404,'Natjecatelj nije pronađen.');
-  const key=await hash([p.name.toLocaleLowerCase('hr').replace(/\s+/g,' '),p.contact.toLowerCase().replace(/\s+/g,''),category].join('|'));
+  const key=await hash(participantKey(p.name,category));
   const duplicate=await env.DB.prepare('SELECT id FROM participants WHERE identity_key=? AND id<>?').bind(key,id).first();
   if(duplicate)fail(409,'Natjecatelj već postoji u toj kategoriji. Potrebno je objediniti njegove zapise prije promjene.');
   return [env.DB.prepare('UPDATE participants SET division=?,division_review=0,identity_key=? WHERE id=?').bind(category,key,id),audit(env,'category',id,{from:p.division,to:category})];
@@ -119,17 +119,16 @@ async function api(request, env, url) {
     const slotId = num(b.slotId,1,2147483647), lane = num(b.lane,1,4);
     const slot = await env.DB.prepare('SELECT * FROM slots WHERE id=?').bind(slotId).first();
     if (!slot || slot.closed || !upcoming(slot.day,slot.hour)) fail(409,'Termin više nije dostupan.');
-    const identityFor=categoryKey=>hash([name.toLocaleLowerCase('hr').replace(/\s+/g,' '),contact.toLowerCase().replace(/\s+/g,''),categoryKey].join('|'));
-    let identity=await identityFor(category);
-    const legacyCategories=category==='women'?['registered_f','recreation_f']:category==='recreation_m'?['recreation_m']:['registered_m'];
-    const keys=[identity,...await Promise.all(legacyCategories.map(identityFor))];
-    const existing=await env.DB.prepare(`SELECT identity_key FROM participants WHERE division=? AND identity_key IN (${keys.map(()=>'?').join(',')}) ORDER BY id LIMIT 1`).bind(category,...keys).first();
+    const nameKey=participantKey(name,category);
+    let identity=await hash(nameKey);
+    const candidates=(await env.DB.prepare('SELECT id,name,identity_key FROM participants WHERE division=? ORDER BY id').bind(category).all()).results;
+    const existing=candidates.find(p=>participantKey(p.name,category)===nameKey);
     if(existing)identity=existing.identity_key;
     const token = crypto.randomUUID()+crypto.randomUUID();
     const tokenHash = await hash(token);
     try {
       const batch = await env.DB.batch([
-        env.DB.prepare('INSERT INTO participants(identity_key,name,club,category,contact,division) VALUES (?,?,?,?,?,?) ON CONFLICT(identity_key) DO NOTHING').bind(identity,name,club,category==='women'?'registered_f':category==='recreation_m'?'recreation_m':'registered_m',contact,category),
+        env.DB.prepare('INSERT INTO participants(identity_key,name,club,category,contact,division) VALUES (?,?,?,?,?,?) ON CONFLICT(identity_key) DO UPDATE SET contact=excluded.contact').bind(identity,name,club,category==='women'?'registered_f':category==='recreation_m'?'recreation_m':'registered_m',contact,category),
         env.DB.prepare(`INSERT INTO bookings(slot_id,lane,participant_id,token_hash)
           SELECT s.id,?,p.id,? FROM slots s,participants p WHERE s.id=? AND s.closed=0 AND p.identity_key=?
           AND s.day || 'T' || printf('%02d',s.hour) || ':00' > ?`).bind(lane,tokenHash,slotId,identity,zagrebNow())
@@ -183,7 +182,7 @@ async function api(request, env, url) {
     return json(rows.map(r=>({...r,ordinal:ordinals.get(r.id)||null,free:!!ordinals.get(r.id)&&ordinals.get(r.id)%5===0})));
   }
   if (path === '/api/admin/statistics' && method === 'GET') {
-    const rows=(await env.DB.prepare(`SELECT s.id AS slot_id,s.day,s.hour,s.closed,b.id AS booking_id,b.participant_id,b.lane,p.name,p.club,r.total
+    const rows=(await env.DB.prepare(`SELECT s.id AS slot_id,s.day,s.hour,s.closed,b.id AS booking_id,b.participant_id,b.lane,p.name,p.club,p.division AS category,r.total
       FROM slots s LEFT JOIN bookings b ON b.slot_id=s.id AND b.cancelled=0
       LEFT JOIN participants p ON p.id=b.participant_id LEFT JOIN results r ON r.booking_id=b.id
       ORDER BY s.day,s.hour,b.id`).all()).results;
@@ -211,7 +210,7 @@ async function api(request, env, url) {
     if(!original)fail(404,'Aktivna prijava nije pronađena.');
     const slot=await env.DB.prepare('SELECT * FROM slots WHERE id=?').bind(slotId).first();
     if(!slot||(slot.closed&&slotId!==original.slot_id))fail(409,'Odabrani termin je zatvoren ili ne postoji.');
-    const key=await hash([name.toLocaleLowerCase('hr').replace(/\s+/g,' '),contact.toLowerCase().replace(/\s+/g,''),category].join('|'));
+    const key=await hash(participantKey(name,category));
     if(await env.DB.prepare('SELECT id FROM participants WHERE identity_key=? AND id<>?').bind(key,original.participant_id).first())fail(409,'Drugi zapis natjecatelja već ima te podatke. Promjena nije spremljena; zapise treba objediniti.');
     try {
       const saved=await env.DB.batch([
