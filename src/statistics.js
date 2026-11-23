@@ -13,7 +13,7 @@ export function buildStatistics(rows) {
   const completed=rows.filter(r=>r.booking_id!==null&&r.total!==null);
   const ordinals=completedOrdinals(completed),freePerformances=[];
   for(const row of rows){
-    if(!days.has(row.day))days.set(row.day,{day:row.day,openSlots:0,closedSlots:0,capacity:0,bookedOpen:0,booked:0,completed:0,freeCompleted:0});
+    if(!days.has(row.day))days.set(row.day,{day:row.day,openSlots:0,closedSlots:0,capacity:0,bookedOpen:0,booked:0,completed:0,freeCompleted:0,womenBookings:0,womenCompleted:0});
     const day=days.get(row.day);
     if(!seenSlots.has(row.slot_id)){
       seenSlots.add(row.slot_id);
@@ -21,9 +21,11 @@ export function buildStatistics(rows) {
     }
     if(row.booking_id===null)continue;
     day.booked++;
+    if(row.category==='women')day.womenBookings++;
     if(!row.closed)day.bookedOpen++;
     if(row.total!==null){
       day.completed++;
+      if(row.category==='women')day.womenCompleted++;
       const ordinal=ordinals.get(row.booking_id);
       if(ordinal%5===0){
         day.freeCompleted++;
@@ -33,7 +35,7 @@ export function buildStatistics(rows) {
   }
   const finish=d=>({...d,occupancy:d.capacity?Math.round(d.bookedOpen/d.capacity*1000)/10:0,awaitingResults:d.booked-d.completed,chargeableCompleted:d.completed-d.freeCompleted,bookedClosed:d.booked-d.bookedOpen});
   const daily=[...days.values()].sort((a,b)=>a.day.localeCompare(b.day)).map(finish);
-  const totals={openSlots:0,closedSlots:0,capacity:0,bookedOpen:0,booked:0,completed:0,freeCompleted:0};
+  const totals={openSlots:0,closedSlots:0,capacity:0,bookedOpen:0,booked:0,completed:0,freeCompleted:0,womenBookings:0,womenCompleted:0};
   for(const day of daily)for(const key of Object.keys(totals))totals[key]+=day[key];
   freePerformances.sort((a,b)=>a.day.localeCompare(b.day)||a.hour-b.hour||a.booking_id-b.booking_id);
   return {totals:finish(totals),daily,freePerformances};
