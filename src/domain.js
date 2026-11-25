@@ -48,7 +48,7 @@ export function rankResults(rows) {
       const bestPerformances=performances.filter(performance=>performance.counted);
       const sum=field=>bestPerformances.length===2&&bestPerformances.every(performance=>performance[field]!==null)?bestPerformances.reduce((total,performance)=>total+performance[field],0):null;
       return { ...p, performances, count: p.scores.length, best: p.scores.slice(0,2), total: p.scores.length >= 2 ? p.scores[0]+p.scores[1] : null, bestCleaning:sum('cleaning'), bestMisses:sum('misses') };
-    }).sort((a,b) => (b.total ?? -1) - (a.total ?? -1) || a.name.localeCompare(b.name, 'hr'));
+    }).sort((a,b) => (b.total ?? -1) - (a.total ?? -1) || (a.total === null ? b.best[0] - a.best[0] : 0) || a.name.localeCompare(b.name, 'hr'));
     let previous, position;
     group.forEach((p, i) => {
       if (p.total !== previous) position = i+1;
