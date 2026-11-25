@@ -60,7 +60,9 @@ async function loadRank() {
 }
 function renderRank() {
   $('#rank-filters').innerHTML=Object.entries(state.config.categories).map(([key,label])=>`<button data-category="${key}" class="${state.category===key?'selected':''}" aria-pressed="${state.category===key}">${escape(label)}</button>`).join('');
-  const rows=state.rankings.filter(r=>r.category===state.category);
+  const singleScore=r=>Math.max(0,...r.performances.map(p=>Number(p.total)));
+  const rows=state.rankings.filter(r=>r.category===state.category).sort((a,b)=>
+    (b.total??-1)-(a.total??-1) || (a.total==null&&b.total==null?singleScore(b)-singleScore(a):0) || a.name.localeCompare(b.name,'hr')); 
   const performanceRow=(p,expanded=false)=>`<div class="performance-row ${p.counted?'counted':''}"><span>${p.number}.${expanded?` <small>${escape(dateLabel(p.day))} · ${hour(p.hour)} · staza ${lanes[p.lane-1]}</small>`:''}</span><strong>${p.total}</strong><span>${p.cleaning??'—'}</span><span>${p.misses??'—'}</span></div>`;
   const performanceHeader='<div class="performance-head"><span>Nastup</span><span>Ukupno</span><span>Čišćenje</span><span>Promašaji</span></div>';
   $('#rank-body').innerHTML=rows.length?rows.map(r=>{
