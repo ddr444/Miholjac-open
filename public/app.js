@@ -7,6 +7,7 @@ document.body.dataset.page=currentPage();
 const lanes = ['I.','II.','III.','IV.'];
 const state = { config:null, slots:[], choice:null, category:'upper_m', rankings:[], results:[], bookings:[], resultId:null, authenticated:false, authMode:'password',role:null,email:null,googleReady:false };
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const compareResults = (a,b) => (b.total??-1)-(a.total??-1) || (b.cleaning??-1)-(a.cleaning??-1) || (a.misses??Infinity)-(b.misses??Infinity) || 0;
 const hour = value => `${String(value).padStart(2,'0')}:00`;
 const dateLabel = day => new Intl.DateTimeFormat('hr-HR',{weekday:'long',day:'numeric',month:'long'}).format(new Date(`${day}T12:00:00`));
 let toastTimer;
@@ -44,7 +45,7 @@ async function loadSlots() {
       const taken=s.taken.includes(i+1), disabled=s.closed||s.past||taken;
       const label=taken?'Rezervirano':s.closed?'Zatvoreno':s.past?'Prošlo':'Slobodno';
       const reservation=s.reservations?.find(r=>r.lane===i+1);
-      if(reservation) return `<td><div class="lane-reservation"><strong>${escape(reservation.name)}</strong><small>${escape(reservation.club||'Bez kluba')}</small><span>Rezervirano</span></div></td>`;
+      if(reservation) return `<td><div class="lane-reservation"><strong>${escape(reservation.name)}</strong><small>${escape(reservation.club||'Bez kluba')}</small><span>${reservation.total!=null?`Ukupno: ${escape(reservation.total)}`:'Rezervirano'}</span></div></td>`;
       return `<td><button class="lane-button" data-slot="${s.id}" data-lane="${i+1}" ${disabled?'disabled':''} aria-label="${escape(`${hour(s.hour)}, staza ${l}, ${label}`)}">${label}</button></td>`;
     }).join('')}</tr>`).join('')}</tbody></table>`;
   } catch(e) { if(request===slotRequest) displayEmpty($('#slots'),'Termini nisu učitani',e.message); }
@@ -60,14 +61,13 @@ async function loadRank() {
 }
 function renderRank() {
   $('#rank-filters').innerHTML=Object.entries(state.config.categories).map(([key,label])=>`<button data-category="${key}" class="${state.category===key?'selected':''}" aria-pressed="${state.category===key}">${escape(label)}</button>`).join('');
-  const singleScore=r=>Math.max(0,...r.performances.map(p=>Number(p.total)));
-  const rows=state.rankings.filter(r=>r.category===state.category).sort((a,b)=>
-    (b.total??-1)-(a.total??-1) || (a.total==null&&b.total==null?singleScore(b)-singleScore(a):0) || a.name.localeCompare(b.name,'hr')); 
+  const rankingScore=r=>r.total==null?[...r.performances].sort(compareResults)[0]:{total:r.total,cleaning:r.bestCleaning,misses:r.bestMisses};
+  const rows=state.rankings.filter(r=>r.category===state.category).sort((a,b)=>Number(b.total!=null)-Number(a.total!=null)||compareResults(rankingScore(a),rankingScore(b))||a.name.localeCompare(b.name,'hr'));
   const performanceRow=(p,expanded=false)=>`<div class="performance-row ${p.counted?'counted':''}"><span>${p.number}.${expanded?` <small>${escape(dateLabel(p.day))} · ${hour(p.hour)} · staza ${lanes[p.lane-1]}</small>`:''}</span><strong>${p.total}</strong><span>${p.cleaning??'—'}</span><span>${p.misses??'—'}</span></div>`;
   const performanceHeader='<div class="performance-head"><span>Nastup</span><span>Ukupno</span><span>Čišćenje</span><span>Promašaji</span></div>';
   $('#rank-body').innerHTML=rows.length?rows.map(r=>{
-    const best=[...r.performances].sort((a,b)=>b.total-a.total||a.number-b.number).slice(0,2);
-    return `<tr class="rank-main"><td class="rank-number">${r.position??'—'}</td><td><strong>${escape(r.name)}</strong><small>${escape(r.club||'Bez kluba')}</small></td><td><button class="rank-expand" data-expand-rank="${r.id}" aria-expanded="false" aria-controls="rank-history-${r.id}" aria-label="Prikaži sve nastupe: ${escape(r.name)}">${r.count} <span aria-hidden="true">⌄</span></button></td><td><div class="rank-performances">${performanceHeader}${best.map(p=>performanceRow(p)).join('')}</div></td><td><span class="score">${r.total??'—'}</span>${r.total===null?'<small>Potreban još 1 nastup</small>':`<small>Č: ${r.bestCleaning??'—'} · P: ${r.bestMisses??'—'}</small>`}</td></tr><tr id="rank-history-${r.id}" class="rank-history" hidden><td colspan="5"><div class="rank-history-title">Svi nastupi · ${escape(r.name)}</div><div class="rank-performances expanded-performances">${performanceHeader}${r.performances.map(p=>performanceRow(p,true)).join('')}</div></td></tr>`;
+    const best=[...r.performances].sort((a,b)=>compareResults(a,b)||a.number-b.number).slice(0,2);
+    return `<tr class="rank-main"><td class="rank-number">${r.position??'—'}</td><td><strong>${escape(r.name)}</strong><small>${escape(r.club||'Bez kluba')}</small></td><td><button class="rank-expand" data-expand-rank="${r.id}" aria-expanded="false" aria-controls="rank-history-${r.id}" aria-label="Prikaži sve nastupe: ${escape(r.name)}">${r.count} <span aria-hidden="true">⌄</span></button></td><td><div class="rank-performances">${performanceHeader}${best.map(p=>performanceRow(p)).join('')}</div></td><td><span class="score">${r.total??'—'}</span>${r.total===null?'<small>Potreban još 1 nastup</small>':`<small>Č: ${r.bestCleaning??'—'} · P: ${r.bestMisses??'—'}</small>`}</td></tr><tr id="rank-history-${r.id}" class="rank-history" hidden><td colspan="5"><div class="rank-history-title">Svi nastupi · ${escape(r.name)}</div><div class="rank-performances expanded-performances">${performanceHeader}${[...r.performances].sort(compareResults).map(p=>performanceRow(p,true)).join('')}</div></td></tr>`;
   }).join(''):'<tr><td colspan="5" class="empty">Još nema rezultata u ovoj kategoriji.</td></tr>';
 }
 async function loadResults() {
@@ -76,7 +76,7 @@ async function loadResults() {
 }
 function renderResults() {
   const search=$('#result-search').value.toLocaleLowerCase('hr');
-  const rows=state.results.filter(r=>`${r.name} ${r.club}`.toLocaleLowerCase('hr').includes(search));
+  const rows=state.results.filter(r=>`${r.name} ${r.club}`.toLocaleLowerCase('hr').includes(search)).sort(compareResults);
   $('#results-body').innerHTML=rows.length?rows.map(r=>`<tr><td><strong>${escape(r.name)}</strong><small>${escape(r.club||'Bez kluba')} · ${escape(state.config.categories[r.category])}<br>${escape(dateLabel(r.day))} · ${hour(r.hour)} · staza ${lanes[r.lane-1]}</small></td><td class="score">${r.total}</td><td>${r.cleaning??'—'}</td><td>${r.misses??'—'}</td></tr>`).join(''):'<tr><td colspan="4" class="empty">Nema rezultata za prikaz.</td></tr>';
 }
 function showAdmin(loggedIn) {
