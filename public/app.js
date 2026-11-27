@@ -45,7 +45,7 @@ async function loadSlots() {
       const taken=s.taken.includes(i+1), disabled=s.closed||s.past||taken;
       const label=taken?'Rezervirano':s.closed?'Zatvoreno':s.past?'Prošlo':'Slobodno';
       const reservation=s.reservations?.find(r=>r.lane===i+1);
-      if(reservation) return `<td><div class="lane-reservation"><strong>${escape(reservation.name)}</strong><small>${escape(reservation.club||'Bez kluba')}</small><span>${reservation.total!=null?`Ukupno: ${escape(reservation.total)}`:'Rezervirano'}</span></div></td>`;
+      if(reservation) return `<td><div class="lane-reservation"><strong>${escape(reservation.name)}</strong><small>${escape(reservation.club||'Bez kluba')}</small><span class="${reservation.total!=null?'reservation-score':''}">${reservation.total!=null?`Ukupno: ${escape(reservation.total)}`:'Rezervirano'}</span></div></td>`;
       return `<td><button class="lane-button" data-slot="${s.id}" data-lane="${i+1}" ${disabled?'disabled':''} aria-label="${escape(`${hour(s.hour)}, staza ${l}, ${label}`)}">${label}</button></td>`;
     }).join('')}</tr>`).join('')}</tbody></table>`;
   } catch(e) { if(request===slotRequest) displayEmpty($('#slots'),'Termini nisu učitani',e.message); }
