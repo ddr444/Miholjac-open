@@ -1,4 +1,4 @@
-import { CATEGORIES, START, END, validDay, zagrebNow, upcoming, scheduleDays, rankResults, participantKey } from './domain.js';
+import { CATEGORIES, START, END, validDay, zagrebNow, upcoming, scheduleDays, rankResults, compareResults, participantKey } from './domain.js';
 import { googleMode, googleReady, googleSession, googleRoute, googleLogout, normalizeEmail } from './google-auth.js';
 import { buildStatistics, completedOrdinals } from './statistics.js';
 
@@ -95,19 +95,19 @@ async function api(request, env, url) {
   if (path === '/api/slots' && method === 'GET') {
     const day = url.searchParams.get('date');
     if (!validDay(day)) fail(400,'Datum je izvan kvalifikacijskog razdoblja.');
-    const rows = (await env.DB.prepare(`SELECT s.id,s.day,s.hour,s.closed,b.lane,p.name,p.club FROM slots s LEFT JOIN bookings b ON b.slot_id=s.id AND b.cancelled=0 LEFT JOIN participants p ON p.id=b.participant_id WHERE s.day=? ORDER BY s.hour,b.lane`).bind(day).all()).results;
+    const rows = (await env.DB.prepare(`SELECT s.id,s.day,s.hour,s.closed,b.lane,p.name,p.club,r.total FROM slots s LEFT JOIN bookings b ON b.slot_id=s.id AND b.cancelled=0 LEFT JOIN participants p ON p.id=b.participant_id LEFT JOIN results r ON r.booking_id=b.id WHERE s.day=? ORDER BY s.hour,b.lane`).bind(day).all()).results;
     const slots = new Map();
     for (const row of rows) {
       if (!slots.has(row.id)) slots.set(row.id,{ id:row.id, day:row.day, hour:row.hour, closed:!!row.closed, past:!upcoming(row.day,row.hour), taken:[], reservations:[] });
       if (row.lane) {
         slots.get(row.id).taken.push(row.lane);
-        slots.get(row.id).reservations.push({lane:row.lane,name:row.name,club:row.club});
+        slots.get(row.id).reservations.push({lane:row.lane,name:row.name,club:row.club,total:row.total});
       }
     }
     return json([...slots.values()]);
   }
   if (path === '/api/standings' && method === 'GET') return json(rankResults(await allResults(env)));
-  if (path === '/api/results' && method === 'GET') return json(await allResults(env));
+  if (path === '/api/results' && method === 'GET') return json((await allResults(env)).sort(compareResults));
   if (path === '/api/book' && method === 'POST') {
     await throttle(request,env,'booking',12);
     const b = await body(request);

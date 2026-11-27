@@ -29,6 +29,9 @@ export function scheduleDays(from, to, weekdays) {
   }
   return out;
 }
+export const compareResults = (a,b) => (b.total??-1)-(a.total??-1) || (b.cleaning??-1)-(a.cleaning??-1) || (a.misses??Infinity)-(b.misses??Infinity) || 0;
+const rankingScore = p => p.total===null ? [...p.performances].sort(compareResults)[0] : {total:p.total,cleaning:p.bestCleaning,misses:p.bestMisses};
+const compareRankings = (a,b) => Number(b.total!==null)-Number(a.total!==null) || compareResults(rankingScore(a),rankingScore(b));
 export function rankResults(rows) {
   const people = new Map();
   for (const row of rows) {
@@ -43,25 +46,25 @@ export function rankResults(rows) {
     const group = [...people.values()].filter(p => p.category === category).map(p => {
       p.scores.sort((a,b) => b-a);
       p.performances.sort((a,b)=>String(a.day||'').localeCompare(String(b.day||'')) || (a.hour??0)-(b.hour??0) || (a.booking_id??0)-(b.booking_id??0));
-      const selected=new Set(p.performances.map((performance,index)=>({performance,index})).sort((a,b)=>b.performance.total-a.performance.total || a.index-b.index).slice(0,2).map(item=>item.index));
+      const selected=new Set(p.performances.map((performance,index)=>({performance,index})).sort((a,b)=>compareResults(a.performance,b.performance) || a.index-b.index).slice(0,2).map(item=>item.index));
       const performances=p.performances.map((performance,index)=>({...performance,number:index+1,counted:p.scores.length>=2&&selected.has(index)}));
       const bestPerformances=performances.filter(performance=>performance.counted);
       const sum=field=>bestPerformances.length===2&&bestPerformances.every(performance=>performance[field]!==null)?bestPerformances.reduce((total,performance)=>total+performance[field],0):null;
       return { ...p, performances, count: p.scores.length, best: p.scores.slice(0,2), total: p.scores.length >= 2 ? p.scores[0]+p.scores[1] : null, bestCleaning:sum('cleaning'), bestMisses:sum('misses') };
-    }).sort((a,b) => (b.total ?? -1) - (a.total ?? -1) || (a.total === null ? b.best[0] - a.best[0] : 0) || a.name.localeCompare(b.name, 'hr'));
+    }).sort((a,b) => compareRankings(a,b) || a.name.localeCompare(b.name, 'hr'));
     let previous, position;
     group.forEach((p, i) => {
-      if (p.total !== previous) position = i+1;
-      previous = p.total;
+      if (!previous || compareRankings(p,previous)!==0) position = i+1;
+      previous = p;
       result.push({ ...p, position: p.total === null ? null : position });
     });
   }
-  const overall=[...result].sort((a,b)=>(b.total??-1)-(a.total??-1)||a.name.localeCompare(b.name,'hr'));
+  const overall=[...result].sort((a,b)=>compareRankings(a,b)||a.name.localeCompare(b.name,'hr'));
   let previousTotal,overallPosition;
   const positions=new Map();
   overall.forEach((p,index)=>{
-    if(p.total!==previousTotal)overallPosition=index+1;
-    previousTotal=p.total;
+    if(!previousTotal || compareRankings(p,previousTotal)!==0)overallPosition=index+1;
+    previousTotal=p;
     positions.set(p.id,p.total===null?null:overallPosition);
   });
   return result.map(p=>({...p,overallPosition:positions.get(p.id)}));
