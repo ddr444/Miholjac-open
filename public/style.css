@@ -16,3 +16,5 @@
 .statistics-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.statistics-cards>div{background:#f3f7eb;border:1px solid var(--line);border-radius:8px;padding:16px}.statistics-cards span{display:block;font-size:11px;line-height:1.5}.statistics-cards strong{display:block;font-size:28px;margin:10px 0;color:#365a2b}.statistics-cards small{display:block;font-size:10px;line-height:1.5;color:var(--muted)}.admin-statistics details{margin-top:18px}.admin-statistics summary{font-size:13px;margin-bottom:10px}.admin-statistics h3{margin:8px 0 0}.admin-statistics .section-heading{margin-bottom:16px}@media(max-width:900px){.statistics-cards{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:650px){.statistics-cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.statistics-cards>div{padding:12px}.statistics-cards strong{font-size:24px}}
 
 .lane-reservation span.reservation-score{font-size:12px;font-weight:700;color:inherit}@media(max-width:650px){.lane-reservation span.reservation-score{font-size:10px}}
+
+#rank-body .rank-finalist>td{background:#edf7e8}#rank-body .rank-finalist .performance-row.counted{background:#e3f0dc}
