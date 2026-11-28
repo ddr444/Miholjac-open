@@ -53,10 +53,12 @@ async function categoryChange(env,id,category) {
   if(!Object.hasOwn(CATEGORIES,category))fail(400,'Odaberite kategoriju.');
   const p=await env.DB.prepare('SELECT * FROM participants WHERE id=?').bind(id).first();
   if(!p)fail(404,'Natjecatelj nije pronađen.');
-  const key=await hash(participantKey(p.name,category));
+  let key=await hash(participantKey(p.name,category));
   const duplicate=await env.DB.prepare('SELECT id FROM participants WHERE identity_key=? AND id<>?').bind(key,id).first();
-  if(duplicate)fail(409,'Natjecatelj već postoji u toj kategoriji. Potrebno je objediniti njegove zapise prije promjene.');
-  return [env.DB.prepare('UPDATE participants SET division=?,division_review=0,identity_key=? WHERE id=?').bind(category,key,id),audit(env,'category',id,{from:p.division,to:category})];
+  if(duplicate)key=await hash(`${participantKey(p.name,category)}|record:${id}`);
+  const statements = [env.DB.prepare('UPDATE participants SET division=?,division_review=0,identity_key=? WHERE id=?').bind(category,key,id),audit(env,'category',id,{from:p.division,to:category,duplicate:duplicate?.id??null})];
+  statements.warning=duplicate?'Kategorija je spremljena. Postoji zapis istog imena u toj kategoriji; njihovi rezultati računaju se zajedno.':null;
+  return statements;
 }
 const allResults = async env => (await env.DB.prepare(`SELECT b.id AS booking_id, p.id AS participant_id, p.name,p.club,p.division AS category,s.day,s.hour,b.lane,
   r.total,r.cleaning,r.misses FROM results r JOIN bookings b ON b.id=r.booking_id JOIN participants p ON p.id=b.participant_id
@@ -236,8 +238,9 @@ async function api(request, env, url) {
   }
   if (path === '/api/admin/category' && method === 'POST') {
     const b=await body(request),id=num(b.id,1,2147483647),category=str(b.category,30);
-    await env.DB.batch(await categoryChange(env,id,category));
-    return json({ok:true});
+    const statements=await categoryChange(env,id,category);
+    await env.DB.batch(statements);
+    return json({ok:true,warning:statements.warning});
   }
   if (path === '/api/admin/result' && method === 'POST') {
     const b = await body(request), id = num(b.id,1,2147483647);
